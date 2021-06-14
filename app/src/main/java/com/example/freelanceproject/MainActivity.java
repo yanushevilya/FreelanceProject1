@@ -40,6 +40,36 @@ public class MainActivity extends AppCompatActivity {
         return userReposList;
     }
 
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        realm = Realm.getDefaultInstance(); // получаем экземпляр БД
+        init();
+    }
+
+    public void init() {
+        // ??? - ВЫЗОВ МЕТОДА, КОТОРЫЙ ЧИТАЕТ ПУШ С FCM ОБ ИЗМЕНЕНИЯХ В РЕПОЗИТОРИЯХ
+        // IF - ЕСЛИ ЕСТЬ ИЗМЕНЕНИЯ, ТО ВЫЗЫВАЕМ GitQueryTask()-->saveToRealm() (ЧТОБЫ ПОЛУЧИТЬ НОВЫЙ json и распарсить его в REALM)
+        // ЕСЛИ НЕТ ИЗМЕНЕНИЙ, ТО ПРОСТО ЗАПУСКАЕМ getListGitUsers() ДЛЯ ИНИЦИАЛИЗАЦИИ RecyclerView
+//        if (listGitUser.size()>0) {                         //del - добавить сюда МЕТОД вместо IF
+//            getListGitUsers();                              //del
+//        } else {                                            //del
+            try {
+                new GitQueryTask().execute(new URL(url));
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            }
+//        }                                                   //del
+    }
+
+
+
+
+    // === ПОЛЬЗОВАТЕЛИ GIT'a BEGIN ===
+
+    // (получение JSON (в отдельном потоке), запись в Realm, заполнение List'а для RV MainActivity
     // поток для получения JSON про ЮЗЕРОВ
     class GitQueryTask extends AsyncTask<URL, Void, String> {
 
@@ -79,72 +109,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // поток для получения JSON про РЕПОЗИТОРИИ
-    class UserQueryTask extends AsyncTask<URL, Void, String> {
-
-        @Override
-        protected String doInBackground(URL... urls) {
-            String response = null;
-            // 1. делаем запрос по URL и в ответ получаем JSON, который записываем в переменную - response
-            try {
-                response = getResponseFromURL(urls[0]);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            return response;
-        }
-
-        // здесь надо распарсить полученный в response JSON и поместить данные из него в наш массив listGitUser
-        @Override
-        protected void onPostExecute(String response) {
-            try {
-                JSONArray jsonArray = new JSONArray(response);
-
-                Context context = MainActivity.this;
-                Class destinationActivity = DetailsActivity.class;
-                Intent detailsActivityIntent = new Intent(context, destinationActivity);
-                startActivity(detailsActivityIntent);
-
-
-                // 2. считываем данные из полученного JSON и сразу записываем их в наш List для адаптера RecyclerView
-                String repo = "";
-                for (int i = 0; i < jsonArray.length(); i++ ) {
-                    repo = jsonArray.getJSONObject(i).get("html_url").toString();
-                    UserRepos userRepos = new UserRepos();
-                    userRepos.setRepo(repo);
-                    saveUserReposToRealm(repo);
-                }
-
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-
-        realm = Realm.getDefaultInstance(); // получаем экземпляр БД
-        init();
-    }
-
-    public void init() {
-        // ??? - ВЫЗОВ МЕТОДА, КОТОРЫЙ ЧИТАЕТ ПУШ С FCM ОБ ИЗМЕНЕНИЯХ В РЕПОЗИТОРИЯХ
-        // IF - ЕСЛИ ЕСТЬ ИЗМЕНЕНИЯ, ТО ВЫЗЫВАЕМ GitQueryTask()-->saveToRealm() (ЧТОБЫ ПОЛУЧИТЬ НОВЫЙ json и распарсить его в REALM)
-        // ЕСЛИ НЕТ ИЗМЕНЕНИЙ, ТО ПРОСТО ЗАПУСКАЕМ getListGitUsers() ДЛЯ ИНИЦИАЛИЗАЦИИ RecyclerView
-//        if (listGitUser.size()>0) {                         //del - добавить сюда МЕТОД вместо IF
-//            getListGitUsers();                              //del
-//        } else {                                            //del
-            try {
-                new GitQueryTask().execute(new URL(url));
-            } catch (MalformedURLException e) {
-                e.printStackTrace();
-            }
-//        }                                                   //del
-    }
-
     public void saveGitUserToRealm(String login, String changesCount) {
         RealmResults<GitUser> gitUsers = realm.where(GitUser.class).findAll(); // получаем всю БД по модели Contact
         try {
@@ -162,7 +126,6 @@ public class MainActivity extends AppCompatActivity {
             }
             throw new RuntimeException(e);
         }
-//        listGitUser.clear();
         getListGitUsers();
     }
 
@@ -184,7 +147,6 @@ public class MainActivity extends AppCompatActivity {
             GitUserAdapter.OnGitUserClickListener gitUserClickListener = new GitUserAdapter.OnGitUserClickListener() {
                 @Override
                 public void onGitUserClick(GitUser gitUser, int position) {
-                    System.out.println(gitUser.getLogin());
                     try {
                         userReposList.clear(); // очищаем List для RV репозитория юзера, перед тапом по новому юзеру
                         new UserQueryTask().execute(new URL("https://api.github.com/users/" + gitUser.getLogin() + "/repos"));
@@ -199,13 +161,71 @@ public class MainActivity extends AppCompatActivity {
 
         }
     }
+    // === ПОЛЬЗОВАТЕЛИ GIT'a END ===
 
-    public void saveUserReposToRealm(String repo) {
+
+
+
+    // ================ РЕПОЗИТОРИИ BEGIN ===
+    // (получение JSON (в отдельном потоке), запись в Realm, заполнение List'а для RV DetailsActivity
+    // запускается когда тапнули по холдеру пользователя
+
+    // поток для получения JSON про РЕПОЗИТОРИИ
+    class UserQueryTask extends AsyncTask<URL, Void, String> {
+
+        @Override
+        protected String doInBackground(URL... urls) {
+            String response = null;
+            // 1. делаем запрос по URL и в ответ получаем JSON, который записываем в переменную - response
+            try {
+                response = getResponseFromURL(urls[0]);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return response;
+        }
+
+        // здесь надо распарсить полученный в response JSON и поместить данные из него в Realm
+        @Override
+        protected void onPostExecute(String response) {
+            try {
+                JSONArray jsonArray = new JSONArray(response);
+
+                Context context = MainActivity.this;
+                Class destinationActivity = DetailsActivity.class;
+                Intent detailsActivityIntent = new Intent(context, destinationActivity);
+                startActivity(detailsActivityIntent);
+
+                // 2. считываем данные из полученного JSON и сразу записываем их в Realm
+                String repo = "";
+                String login = "";
+                String fullName = "";
+                for (int i = 0; i < jsonArray.length(); i++ ) {
+                    repo = jsonArray.getJSONObject(i).get("html_url").toString();
+                    login = jsonArray.getJSONObject(i).getJSONObject("owner").get("login").toString();
+                    fullName = jsonArray.getJSONObject(i).get("full_name").toString();
+                    UserRepos userRepos = new UserRepos();
+                    userRepos.setRepo(repo);
+                    userRepos.setLogin(login);
+                    saveUserReposToRealm(repo, login, fullName);
+                    System.out.println("==========" + login);
+                }
+                login = jsonArray.getJSONObject(0).getJSONObject("owner").get("login").toString();
+                getListUserRepos(login);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public void saveUserReposToRealm(String repo, String login, String fullName) {
         RealmResults<UserRepos> userRepos = realm.where(UserRepos.class).findAll(); // получаем всю БД по модели Contact
         try {
             realm.beginTransaction();
             UserRepos dataUserRepos = new UserRepos();
             dataUserRepos.setRepo(repo);
+            dataUserRepos.setLogin(login);
+            dataUserRepos.setFullName(fullName);
             realm.copyToRealmOrUpdate(dataUserRepos); // обновляет БД по @PrimaryKey или добавляет, если по @PrimaryKey записи не найдено
             realm.commitTransaction();
         } catch (Exception e) {
@@ -214,13 +234,19 @@ public class MainActivity extends AppCompatActivity {
             }
             throw new RuntimeException(e);
         }
-        getListUserRepos();
+
     }
 
     // заполняет List для RV DetailsActivity
-    public void getListUserRepos() {
+    public void getListUserRepos(String login) {
         RealmResults<UserRepos> realmResults = realm.where(UserRepos.class).sort("repo").findAll();
         userReposList.clear();
-        userReposList.addAll(realmResults);
+        System.out.println("+++++++++++++++++++++++++++++++++"+realmResults.size());
+        for (int i=0; i<realmResults.size(); i++) {
+            if (login.equals(realmResults.get(i).getLogin())) {
+                userReposList.add(realmResults.get(i));
+            }
+        }
     }
+    // ================ РЕПОЗИТОРИИ END ===
 }
